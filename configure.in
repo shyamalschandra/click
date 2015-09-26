@@ -13,10 +13,20 @@ dnl legally binding.
 
 AC_INIT([click], [2.1])
 AC_PREREQ(2.60)
-AC_CONFIG_HEADER(include/click/config.h:config.h.in include/click/pathvars.h:pathvars.h.in include/click/config-bsdmodule.h:config-bsdmodule.h.in include/click/config-linuxmodule.h:config-linuxmodule.h.in include/click/config-ns.h:config-ns.h.in include/click/config-userlevel.h:config-userlevel.h.in include/click/config-minios.h:config-minios.h.in)
+AC_CONFIG_HEADERS([include/click/config.h:config.h.in], [echo > stamp-h])
+AC_CONFIG_HEADERS([include/click/pathvars.h:pathvars.h.in])
+AC_CONFIG_HEADERS([include/click/config-bsdmodule.h:config-bsdmodule.h.in include/click/config-linuxmodule.h:config-linuxmodule.h.in include/click/config-ns.h:config-ns.h.in include/click/config-userlevel.h:config-userlevel.h.in include/click/config-minios.h:config-minios.h.in])
+AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([bin/click-buildtool:click-buildtool.in], [chmod +x bin/click-buildtool])
+AC_CONFIG_FILES([bin/click-compile:click-compile.in], [chmod +x bin/click-compile])
+AC_CONFIG_FILES([installch], [chmod +x installch])
+AC_CONFIG_FILES([share/click/config.mk:config.mk.in share/click/pkg-config.mk])
+AC_CONFIG_FILES([doc/Makefile etc/libclick/Makefile tools/Makefile tools/lib/Makefile])
 AC_CONFIG_SRCDIR([click-buildtool.in])
 
 CLICK_VERSION=$PACKAGE_VERSION
+dnl NB a real tab character!
+tabchar='	'
 
 AC_SUBST(ac_configure_args)
 AC_DEFINE_UNQUOTED([CLICK_VERSION], ["$CLICK_VERSION"])
@@ -571,9 +581,13 @@ dnl
 dnl timestamps
 dnl
 
-AC_CHECK_HEADERS([time.h])
+AC_CHECK_HEADERS_ONCE([time.h])
 AC_CHECK_SIZEOF([struct timeval])
-AC_CHECK_TYPES([struct timespec], have_timespec=yes, have_timespec=no)
+AC_CHECK_TYPES([struct timespec], [have_timespec=yes], [have_timespec=no],
+               [AC_INCLUDES_DEFAULT
+[#ifdef HAVE_TIME_H]
+[# include <time.h>]
+[#endif]])
 if test "x$have_timespec" = xyes; then
     AC_CHECK_SIZEOF([struct timespec])
 fi
@@ -638,7 +652,7 @@ dnl
 dnl headers, event detection, dynamic linking
 dnl
 
-AC_CHECK_HEADERS([termio.h netdb.h sys/event.h pwd.h grp.h execinfo.h])
+AC_CHECK_HEADERS_ONCE([termio.h netdb.h sys/event.h pwd.h grp.h execinfo.h])
 CLICK_CHECK_POLL_H
 AC_CHECK_FUNCS([pselect sigaction])
 
@@ -700,7 +714,7 @@ dnl mmap
 dnl
 
 AC_LANG_C
-AC_CHECK_HEADERS(sys/mman.h)
+AC_CHECK_HEADERS_ONCE([sys/mman.h])
 AC_FUNC_MMAP
 AC_LANG_CPLUSPLUS
 AC_CHECK_FUNCS(madvise)
@@ -1114,7 +1128,7 @@ dnl
 dnl kernel interfaces
 dnl
 
-AC_CHECK_HEADERS([ifaddrs.h linux/if_tun.h net/if_dl.h net/if_tap.h net/if_tun.h net/if_types.h net/bpf.h netpacket/packet.h])
+AC_CHECK_HEADERS_ONCE([ifaddrs.h linux/if_tun.h net/if_dl.h net/if_tap.h net/if_tun.h net/if_types.h net/bpf.h netpacket/packet.h])
 
 
 dnl
@@ -1337,6 +1351,7 @@ Can't find Linux compilation flags.
             -e s,-Wstrict-prototypes,,g \
             -e s,-Wdeclaration-after-statement,,g \
             -e s,-fno-common,,g \
+            -e 's,-std=[-a-z0-9+]*,,g' \
             -e s,-Werror-implicit-function-declaration,,g \
             -e 's,-W[^ ]*,,g' <conftest.dat`"
         AC_MSG_RESULT($LINUX_CFLAGS)
@@ -1359,7 +1374,7 @@ fixincludes.pl execution failed.
         fi
         LINUX_CFLAGS="`head -n 1 conftest.dat`"
         LINUX_FIXINCLUDES_PROGRAM="| sed `tail -n 1 conftest.dat`"
-        CLICKLINUX_FIXINCLUDES_PROGRAM="| sed `tail -n 1 conftest.dat | sed -e "s       $mydir  $clickbuild_includedir/click-linuxmodule        g"`"
+        CLICKLINUX_FIXINCLUDES_PROGRAM="| sed `tail -n 1 conftest.dat | sed -e "s$tabchar$mydir$tabchar$clickbuild_includedir/click-linuxmodule${tabchar}g"`"
     fi
     AC_SUBST([LINUX_FIXINCLUDES_PROGRAM])
     AC_SUBST([CLICKLINUX_FIXINCLUDES_PROGRAM])
@@ -1628,6 +1643,12 @@ void f1(int64_t) { // will fail if long long and int64_t are the same type
 #include <linux/skbuff.h>]])
     if test $ac_cv_skb_recycle = yes; then
         AC_DEFINE([HAVE_SKB_RECYCLE], [1], [Define if you have the skb_recycle function.])
+    fi
+
+    AC_CHECK_DECL([skb_recycle_check], [ac_cv_skb_recycle_check=yes], [ac_cv_skb_recycle_check=no], [CLICK_LINUXMODULE_PROLOGUE()[
+#include <linux/skbuff.h>]])
+    if test $ac_cv_skb_recycle_check = yes; then
+        AC_DEFINE([HAVE_SKB_RECYCLE_CHECK], [1], [Define if you have the skb_recycle_check function.])
     fi
 
 save_cflags="$CFLAGS"
@@ -1998,26 +2019,28 @@ dnl
 dnl Output
 dnl
 
-config_files="Makefile click-buildtool click-compile config.mk installch tools/Makefile tools/lib/Makefile doc/Makefile etc/libclick/Makefile etc/pkg-config.mk"
-for ac_dir in $POSSIBLE_DRIVERS; do
-    config_files="$config_files $ac_dir/Makefile"
-    if test "$ac_dir" = minios; then
-        config_files="$config_files $ac_dir/config.mk"
-    fi
-done
-for ac_dir in $TOOLDIRS; do
-    config_files="$config_files tools/$ac_dir/Makefile"
-done
-for ac_dir in etc include; do
+test -f $srcdir/bsdmodule/Makefile.in && AC_CONFIG_FILES([bsdmodule/Makefile])
+test -f $srcdir/linuxmodule/Makefile.in && AC_CONFIG_FILES([linuxmodule/Makefile])
+test -f $srcdir/minios/Makefile.in && AC_CONFIG_FILES([minios/Makefile minios/config.mk])
+test -f $srcdir/ns/Makefile.in && AC_CONFIG_FILES([ns/Makefile])
+test -f $srcdir/userlevel/Makefile.in && AC_CONFIG_FILES([userlevel/Makefile])
+
+test -d $srcdir/tools/click-align && AC_CONFIG_FILES([tools/click-align/Makefile])
+test -d $srcdir/tools/click-check && AC_CONFIG_FILES([tools/click-check/Makefile])
+test -d $srcdir/tools/click-combine && AC_CONFIG_FILES([tools/click-combine/Makefile])
+test -d $srcdir/tools/click-devirtualize && AC_CONFIG_FILES([tools/click-devirtualize/Makefile])
+test -d $srcdir/tools/click-fastclassifier && AC_CONFIG_FILES([tools/click-fastclassifier/Makefile])
+test -d $srcdir/tools/click-flatten && AC_CONFIG_FILES([tools/click-flatten/Makefile])
+test -d $srcdir/tools/click-install && AC_CONFIG_FILES([tools/click-install/Makefile])
+test -d $srcdir/tools/click-ipopt && AC_CONFIG_FILES([tools/click-ipopt/Makefile])
+test -d $srcdir/tools/click-mkmindriver && AC_CONFIG_FILES([tools/click-mkmindriver/Makefile])
+test -d $srcdir/tools/click-pretty && AC_CONFIG_FILES([tools/click-pretty/Makefile])
+test -d $srcdir/tools/click-undead && AC_CONFIG_FILES([tools/click-undead/Makefile])
+test -d $srcdir/tools/click-xform && AC_CONFIG_FILES([tools/click-xform/Makefile])
+test -d $srcdir/tools/click2xml && AC_CONFIG_FILES([tools/click2xml/Makefile])
+
+for ac_dir in bin etc include share share/click; do
     test ! -d "$ac_dir" && mkdir "$ac_dir"
 done
 
-AC_OUTPUT_COMMANDS([for ac_file in $CONFIG_HEADERS; do
-    test $ac_file = include/click/config.h:config.h.in && echo > stamp-h
-done
-for ac_file in $CONFIG_FILES; do
-    test $ac_file = click-buildtool && chmod +x click-buildtool
-    test $ac_file = click-compile && chmod +x click-compile
-    test $ac_file = installch && chmod +x installch
-done])
-AC_OUTPUT($config_files)
+AC_OUTPUT
